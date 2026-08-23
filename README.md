@@ -42,10 +42,10 @@ claude --plugin-dir /safe/team/path/dex-usage
 
 ```bash
 claude plugin marketplace add /absolute/path/to/plugins/dex-usage
-claude plugin install dex-usage@dex-team --scope user
+claude plugin install dex-usage@dex-usage-marketplace --scope user
 ```
 
-Claude Code 세션 안에서는 같은 작업을 `/plugin marketplace add /absolute/path/to/plugins/dex-usage`, `/plugin install dex-usage@dex-team`으로 실행할 수 있습니다. 팀 저장소에만 고정하려면 `--scope project`, 현재 체크아웃에만 두려면 `--scope local`을 사용합니다.
+Claude Code 세션 안에서는 같은 작업을 `/plugin marketplace add /absolute/path/to/plugins/dex-usage`, `/plugin install dex-usage@dex-usage-marketplace`로 실행할 수 있습니다. 팀 저장소에만 고정하려면 `--scope project`, 현재 체크아웃에만 두려면 `--scope local`을 사용합니다. 마켓플레이스 이름은 `dex-workers@dex-team`과 독립적으로 공존하도록 `dex-usage-marketplace`로 고정됩니다.
 
 플러그인은 사용자 전역 설정을 자동 변경하지 않습니다. 훅은 세션/프롬프트 시 캐시만 비동기로 갱신합니다. Claude/Codex/Gemini가 없거나 로그아웃 상태이면 해당 공급자를 `unknown`으로 표시하며 전체 명령은 성공합니다.
 

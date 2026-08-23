@@ -1,7 +1,7 @@
 {
-  "name": "dex-team",
+  "name": "dex-usage-marketplace",
   "owner": {"name": "DEX-2"},
-  "metadata": {"description": "Local DEX team Claude Code plugins"},
+  "metadata": {"description": "DEX Usage Claude Code plugin marketplace"},
   "plugins": [{
     "name": "dex-usage",
     "source": "./",
