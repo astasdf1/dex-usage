@@ -1,0 +1,24 @@
+{
+  "description": "Warm the DEX usage cache without blocking Claude Code",
+  "hooks": {
+    "SessionStart": [{
+      "matcher": "startup|resume|clear|compact",
+      "hooks": [{
+        "type": "command",
+        "command": "python3",
+        "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/dex_usage.py", "hook-warm"],
+        "async": true,
+        "timeout": 30
+      }]
+    }],
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3",
+        "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/dex_usage.py", "hook-warm"],
+        "async": true,
+        "timeout": 30
+      }]
+    }]
+  }
+}
