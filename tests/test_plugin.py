@@ -1,8 +1,101 @@
 from __future__ import annotations
 import hashlib,json,os,shutil,subprocess,sys,tarfile,tempfile,time,unittest
 from pathlib import Path
+from unittest import mock
 ROOT=Path(__file__).resolve().parents[1];CLI=ROOT/"scripts/dex_usage.py"
 class PluginSmokeTest(unittest.TestCase):
+    def test_antigravity_tui_parser_handles_ansi_repaint_and_named_windows(self):
+        sys.path.insert(0,str(ROOT/"lib"))
+        try:
+            from datetime import datetime,timezone
+            from dex_usage.antigravity import parse_quota_screen
+            now=datetime(2026,1,1,tzinfo=timezone.utc)
+            screen="\x1b[2JUsage\r\nGEMINI MODELS\r\n5-hour quota 36% used · resets in 2 hours\r\n5-hour quota 36% used · resets in 2 hours\r\nWeekly 89% remaining · resets in 5 days\r\nCLAUDE AND GPT MODELS\r\nFive Hour Limit Remaining\r\nQuota available\r\nWeekly Limit Remaining\r\nQuota available\r\nuser@example.com"
+            value=parse_quota_screen(screen,now)
+            self.assertEqual(value["five_hour"]["remaining_percent"],64)
+            self.assertEqual(value["one_week"]["remaining_percent"],89)
+            self.assertEqual(value["five_hour"]["reset_time"],"2026-01-01T02:00:00Z")
+            self.assertNotIn("user@example.com",json.dumps(value))
+        finally:sys.path.pop(0)
+    def test_antigravity_tui_parser_fails_closed_for_malformed_or_localized_text(self):
+        sys.path.insert(0,str(ROOT/"lib"))
+        try:
+            from dex_usage.antigravity import parse_quota_screen
+            self.assertIsNone(parse_quota_screen("5-hour quota 105% remaining"))
+            self.assertIsNone(parse_quota_screen("5시간 할당량 44% 남음 · 2시간 후 초기화"))
+            self.assertIsNone(parse_quota_screen("weekly quota unavailable"))
+        finally:sys.path.pop(0)
+    def test_antigravity_tui_parser_accepts_explicit_available_windows(self):
+        sys.path.insert(0,str(ROOT/"lib"))
+        try:
+            from dex_usage.antigravity import parse_quota_screen
+            value=parse_quota_screen("Weekly Limit Remaining\nQuota available\nFive Hour Limit Remaining\nQuota available")
+            self.assertEqual(value,{"one_week":{"remaining_percent":100},"five_hour":{"remaining_percent":100}})
+        finally:sys.path.pop(0)
+    def test_antigravity_parsed_cache_is_private_and_contains_no_raw_tui(self):
+        sys.path.insert(0,str(ROOT/"lib"))
+        try:
+            from dex_usage.antigravity import _write_quota,_quota_path
+            with tempfile.TemporaryDirectory() as raw:
+                home=Path(raw);value={"schema":"dex.antigravity.quota.v1","captured_epoch":1,"windows":{"five_hour":{"remaining_percent":20},"one_week":{"remaining_percent":80}}}
+                _write_quota(home,value);path=_quota_path(home)
+                self.assertEqual(path.stat().st_mode&0o777,0o600)
+                self.assertEqual(json.loads(path.read_text()),value)
+                self.assertNotIn("pane",path.read_text().lower())
+        finally:sys.path.pop(0)
+    def test_antigravity_collector_is_setup_opt_in_and_cache_is_allowlisted(self):
+        sys.path.insert(0,str(ROOT/"lib"))
+        try:
+            from dex_usage.antigravity import _collector_enabled,_quota_path,_read_quota
+            with tempfile.TemporaryDirectory() as raw:
+                home=Path(raw);self.assertFalse(_collector_enabled(home))
+                state=home/".claude/dex-usage/statusline-config.json";state.parent.mkdir(parents=True);state.write_text(json.dumps({"previous":None,"antigravity_tui_quota":True}))
+                self.assertTrue(_collector_enabled(home))
+                cache=_quota_path(home);cache.parent.mkdir(parents=True);cache.write_text(json.dumps({"schema":"dex.antigravity.quota.v1","captured_epoch":1,"email":"secret@example.com","windows":{"five_hour":{"remaining_percent":20,"raw":"secret"},"one_week":{"remaining_percent":80}}}))
+                clean=_read_quota(home);self.assertEqual(set(clean),{"schema","captured_epoch","windows"});self.assertNotIn("secret",json.dumps(clean))
+        finally:sys.path.pop(0)
+    def test_antigravity_fresh_30_minute_cache_skips_tui_capture(self):
+        sys.path.insert(0,str(ROOT/"lib"))
+        try:
+            import dex_usage.antigravity as module
+            with tempfile.TemporaryDirectory() as raw:
+                home=Path(raw);state=home/".claude/dex-usage/statusline-config.json";state.parent.mkdir(parents=True);state.write_text(json.dumps({"antigravity_tui_quota":True}))
+                cached={"schema":"dex.antigravity.quota.v1","captured_epoch":time.time(),"windows":{"five_hour":{"remaining_percent":25},"one_week":{"remaining_percent":75}}}
+                module._write_quota(home,cached)
+                def probe(argv,**kwargs):
+                    output="--print --print-timeout --sandbox" if argv[-1]=="--help" else "model"
+                    return subprocess.CompletedProcess(argv,0,output,"")
+                with mock.patch.object(module.shutil,"which",return_value="/fake/agy"),mock.patch.object(module.subprocess,"run",side_effect=probe),mock.patch.object(module,"_capture_quota") as capture:
+                    value=module.collect(home,10)
+                capture.assert_not_called();self.assertEqual(value["quota_status"],"available");self.assertEqual(value["remaining_percent"],25)
+        finally:sys.path.pop(0)
+    def test_antigravity_expired_cache_becomes_stale_when_tui_fails(self):
+        sys.path.insert(0,str(ROOT/"lib"))
+        try:
+            import dex_usage.antigravity as module
+            with tempfile.TemporaryDirectory() as raw:
+                home=Path(raw);state=home/".claude/dex-usage/statusline-config.json";state.parent.mkdir(parents=True);state.write_text(json.dumps({"antigravity_tui_quota":True}))
+                cached={"schema":"dex.antigravity.quota.v1","captured_epoch":time.time()-module.QUOTA_TTL_SECONDS-1,"windows":{"five_hour":{"remaining_percent":20},"one_week":{"remaining_percent":40}}}
+                module._write_quota(home,cached)
+                def probe(argv,**kwargs):
+                    output="--print --print-timeout --sandbox" if argv[-1]=="--help" else "model"
+                    return subprocess.CompletedProcess(argv,0,output,"")
+                with mock.patch.object(module.shutil,"which",return_value="/fake/agy"),mock.patch.object(module.subprocess,"run",side_effect=probe),mock.patch.object(module,"_capture_quota",side_effect=TimeoutError):
+                    value=module.collect(home,10)
+                self.assertEqual(value["quota_status"],"stale");self.assertTrue(value["stale"]);self.assertEqual(value["remaining_percent"],20)
+        finally:sys.path.pop(0)
+    def test_antigravity_capture_timeout_always_kills_private_tmux_server(self):
+        sys.path.insert(0,str(ROOT/"lib"))
+        try:
+            import dex_usage.antigravity as module
+            calls=[]
+            def tmux(argv,**kwargs):
+                calls.append(argv)
+                return subprocess.CompletedProcess(argv,0,"","")
+            with mock.patch.object(module.shutil,"which",return_value="/fake/tmux"),mock.patch.object(module.subprocess,"run",side_effect=tmux):
+                with self.assertRaises(TimeoutError):module._capture_quota("/fake/agy",.1)
+            self.assertTrue(any("kill-server" in argv for argv in calls))
+        finally:sys.path.pop(0)
     def test_codex_windows_are_classified_by_duration_not_position(self):
         sys.path.insert(0,str(ROOT/"lib"))
         try:
@@ -50,7 +143,7 @@ class PluginSmokeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             home=Path(raw);settings=home/".claude/settings.json";settings.parent.mkdir();settings.write_text(json.dumps({"statusLine":{"type":"command","command":"printf old","padding":2}}))
             preview=self.run_cli(home,"setup","--dry-run");self.assertEqual(preview.returncode,0,preview.stderr);self.assertNotIn("DEX_USAGE_STATUSLINE_V1",settings.read_text());self.assertFalse((home/".cache").exists())
-            result=self.run_cli(home,"setup");self.assertEqual(result.returncode,0,result.stderr);configured=json.loads(settings.read_text());command=configured["statusLine"]["command"];self.assertIn("DEX_USAGE_STATUSLINE_V1",command);self.assertIn(str(home/".claude/dex-usage/statusline.py"),command);self.assertNotIn(str(ROOT),command);self.assertEqual(configured["statusLine"]["padding"],2);self.assertTrue((home/".claude/dex-usage/statusline-config.json").is_file());self.assertEqual(len(list(settings.parent.glob("settings.json.dex-usage.*.bak"))),1)
+            result=self.run_cli(home,"setup");self.assertEqual(result.returncode,0,result.stderr);configured=json.loads(settings.read_text());command=configured["statusLine"]["command"];self.assertIn("DEX_USAGE_STATUSLINE_V1",command);self.assertIn(str(home/".claude/dex-usage/statusline.py"),command);self.assertNotIn(str(ROOT),command);self.assertEqual(configured["statusLine"]["padding"],2);state=json.loads((home/".claude/dex-usage/statusline-config.json").read_text());self.assertTrue(state["antigravity_tui_quota"]);self.assertEqual(len(list(settings.parent.glob("settings.json.dex-usage.*.bak"))),1)
             composed=subprocess.run(command.split(" # ")[0],shell=True,text=True,input="{}",capture_output=True,env=os.environ|{"HOME":raw});self.assertEqual(composed.stdout.strip(),"old | usage C 5h:? 7d:? | O 5h:? 7d:? | A ? quota:?")
             removed=self.run_cli(home,"uninstall");self.assertEqual(removed.returncode,0,removed.stderr);self.assertEqual(json.loads(settings.read_text())["statusLine"],{"type":"command","command":"printf old","padding":2});self.assertFalse((home/".claude/dex-usage").exists())
         with tempfile.TemporaryDirectory() as raw:
@@ -60,6 +153,7 @@ class PluginSmokeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             home=Path(raw);real=home/"real.json";real.write_text("{}\n");settings=home/".claude/settings.json";settings.parent.mkdir();settings.symlink_to(real);result=self.run_cli(home,"setup");self.assertEqual(result.returncode,2);self.assertEqual(real.read_text(),"{}\n")
     def test_packaging_guards_and_folder_install(self):
+        self.assertIn("dex-usage-1.4.0.tar.gz",(ROOT/"scripts/package.py").read_text())
         with tempfile.TemporaryDirectory() as raw:
             base=Path(raw);target=base/"team plugin";result=subprocess.run([sys.executable,str(ROOT/"scripts/install-folder.py"),str(target)],text=True,capture_output=True,check=False);self.assertEqual(result.returncode,0,result.stderr);self.assertTrue((target/".claude-plugin/plugin.json").is_file())
             again=subprocess.run([sys.executable,str(ROOT/"scripts/install-folder.py"),str(target)],capture_output=True,check=False);self.assertEqual(again.returncode,2)
@@ -131,6 +225,13 @@ class PluginSmokeTest(unittest.TestCase):
             result=self.run_cli(home,"statusline"); self.assertEqual(result.returncode,0,result.stderr)
             self.assertIn("C 5h:37%/",result.stdout); self.assertIn("7d:61%/",result.stdout)
             self.assertIn("O 5h:55%/? 7d:28%/?",result.stdout); self.assertIn("A ready quota:?",result.stdout)
+
+    def test_installed_runner_renders_antigravity_windows_and_stale_marker(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home=Path(raw);self.assertEqual(self.run_cli(home,"setup").returncode,0)
+            cache=home/".cache/dex-usage/usage.json";cache.parent.mkdir(parents=True);cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v3","claude":{},"openai":{},"antigravity":{"stale":True,"windows":{"five_hour":{"remaining_percent":44},"one_week":{"remaining_percent":66}}}}))
+            runner=home/".claude/dex-usage/statusline.py";result=subprocess.run([sys.executable,str(runner)],input="{}",text=True,capture_output=True,env=os.environ|{"HOME":raw},check=False)
+            self.assertIn("A~ 5h:44%/? 7d:66%/?",result.stdout)
 
     def test_startup_syncs_managed_runner_without_rewriting_settings(self):
         with tempfile.TemporaryDirectory() as raw:

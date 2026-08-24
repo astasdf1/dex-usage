@@ -1,6 +1,6 @@
 # DEX Usage — Claude Code 플러그인
 
-Claude Code와 Codex의 로컬 로그인 정보로 남은 사용량을 수집하고, Antigravity `agy`의 설치·로그인 준비 상태를 함께 표시합니다. Google 계열 provider는 Antigravity 하나만 제공합니다. `agy`가 신뢰할 수 있는 쿼터 계약을 제공하지 않으므로 Antigravity 쿼터는 추측하지 않고 `quota:?`로 표시합니다. Node.js, npm, FlowDesk, MCP가 필요 없으며 Python 3 표준 라이브러리만 사용합니다. 상태줄은 네트워크를 호출하지 않고 캐시만 읽습니다.
+Claude Code와 Codex의 로컬 로그인 정보로 남은 사용량을 수집하고, Antigravity `agy`의 `/usage` TUI에서 5시간·주간 쿼터를 실험적으로 수집합니다. Google 계열 provider는 Antigravity 하나만 제공합니다. Node.js, npm, FlowDesk, MCP가 필요 없으며 Python 3 표준 라이브러리와 선택적 `tmux`만 사용합니다. 상태줄은 네트워크나 TUI를 호출하지 않고 캐시만 읽습니다.
 
 ## 개발/로컬 실행
 
@@ -33,8 +33,8 @@ claude --plugin-dir "$HOME/.local/share/dex-usage"
 단일 파일 패키지를 만들 수도 있습니다. 패키지는 같은 19개 릴리스 허용 목록만 포함하며 테스트, 설치/패키징 도구, 개발 파일, dot/editor/민감 파일은 포함하지 않습니다. tar 멤버와 gzip 헤더의 시간·소유자·이름·권한 메타데이터를 정규화하므로 동일한 내용은 빌드 시간, 소스 경로, checkout 권한과 무관하게 byte-for-byte 동일한 archive를 생성합니다.
 
 ```bash
-python3 plugins/dex-usage/scripts/package.py --out dist/dex-usage-1.1.1.tar.gz
-tar -xzf dist/dex-usage-1.1.1.tar.gz -C /safe/team/path
+python3 plugins/dex-usage/scripts/package.py --out dist/dex-usage-1.4.0.tar.gz
+tar -xzf dist/dex-usage-1.4.0.tar.gz -C /safe/team/path
 claude --plugin-dir /safe/team/path/dex-usage
 ```
 
@@ -56,7 +56,7 @@ claude plugin update dex-usage@dex-usage-marketplace --scope user
 
 Claude Code 세션 안에서는 같은 작업을 `/plugin marketplace add /absolute/path/to/plugins/dex-usage`, `/plugin install dex-usage@dex-usage-marketplace`로 실행할 수 있습니다. 팀 저장소에만 고정하려면 `--scope project`, 현재 체크아웃에만 두려면 `--scope local`을 사용합니다. 마켓플레이스 이름은 `dex-workers@dex-team`과 독립적으로 공존하도록 `dex-usage-marketplace`로 고정됩니다.
 
-플러그인은 사용자 전역 설정을 자동 변경하지 않습니다. `SessionStart` 훅은 상태줄이 처음 렌더링되기 전에 공급자 사용량과 Antigravity 준비 상태를 갱신합니다. 시작 지연은 8초의 하드 타임아웃과 공급자별 2초 타임아웃으로 제한됩니다. 하드 타임아웃이나 일시적인 rate-limit/API 실패가 발생하면 마지막 정상값을 유지하며 공급자 글자 뒤의 `~`로 stale 상태를 표시합니다. `UserPromptSubmit`은 기존처럼 비동기로 실행되고 5분 TTL이 지난 경우에만 갱신합니다. Claude/Codex가 로그아웃 상태이면 쿼터를 `?`로 표시하며, Antigravity는 `A ready quota:?` 또는 `A ? quota:?`로 표시합니다.
+플러그인은 사용자 전역 설정을 자동 변경하지 않습니다. `SessionStart` 훅은 상태줄이 처음 렌더링되기 전에 공급자 사용량을 병렬 갱신합니다. 시작 지연은 8초의 하드 타임아웃과 내부 7초 제한으로 제한됩니다. Antigravity TUI 수집은 명시적인 `/dex-usage:setup` 때 opt-in 상태로 활성화되며, `DEX_USAGE_ANTIGRAVITY_TUI=0`으로 끌 수 있습니다. 수집기는 고유 tmux 소켓과 빈 임시 작업 디렉터리에서 로컬 설치·로그인된 `agy`를 실행하고 `/usage`, 이어서 필요할 때 `/quota` 화면을 메모리에서만 파싱합니다. 원본 화면·이메일·계정 식별자·토큰·인증정보는 저장하지 않으며 파싱된 5시간/7일 퍼센트와 리셋 시각만 권한 `0600`으로 30분 캐시합니다. `tmux` 부재, 로그인 실패, 레이아웃 변경 또는 시간 초과 시 Claude를 막지 않고 `A ready quota:?`를 표시하며, 이전 정상 캐시가 있으면 `A~`로 유지합니다. `UserPromptSubmit`은 비동기로 실행되며 일반 캐시 TTL이 지난 경우에만 갱신합니다.
 
 ## 소유권과 출처
 

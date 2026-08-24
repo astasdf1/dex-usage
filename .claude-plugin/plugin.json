@@ -1,6 +1,6 @@
 {
   "name": "dex-usage",
-  "version": "1.2.1",
+  "version": "1.4.0",
   "description": "DEX-owned local usage cache and status line for Claude, Codex, and Antigravity",
   "author": {"name": "DEX-2"},
   "license": "Proprietary",

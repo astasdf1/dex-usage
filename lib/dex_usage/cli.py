@@ -71,7 +71,7 @@ def setup(plugin_root:Path,home:Path,dry_run:bool=False)->int:
         if os.path.exists(runner_raw):os.unlink(runner_raw)
     state_fd,state_raw=tempfile.mkstemp(prefix=".statusline-config.",dir=target.parent)
     try:
-        with os.fdopen(state_fd,"w",encoding="utf-8") as stream:stream.write(json.dumps({"previous":compose})+"\n")
+        with os.fdopen(state_fd,"w",encoding="utf-8") as stream:stream.write(json.dumps({"previous":compose,"antigravity_tui_quota":True})+"\n")
         os.chmod(state_raw,0o600);os.replace(state_raw,target)
     finally:
         if os.path.exists(state_raw):os.unlink(state_raw)
@@ -147,7 +147,7 @@ def main(plugin_root:Path,argv=None)->int:
         # below that budget preserves the previous atomically-written cache if
         # Claude Code terminates this refresh at the hook deadline.
         sync_managed_runner(plugin_root,home)
-        refresh(home,timeout=2.0)
+        refresh(home,timeout=7.0)
         return 0
     if args.command=="statusline":return statusline(home)
     if args.command=="setup":return setup(plugin_root,home,args.dry_run)

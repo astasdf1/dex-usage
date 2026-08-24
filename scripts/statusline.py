@@ -46,7 +46,10 @@ def render(home: Path) -> str:
         label = label + ("~" if item.get("stale") else "")
         windows = item.get("windows")
         if name == "antigravity":
-            parts.append(f"{label} {'ready' if item.get('readiness') == 'ready' else '?'} quota:?")
+            if isinstance(windows, dict):
+                parts.append(f"{label} 5h:{display(windows.get('five_hour'))} 7d:{display(windows.get('one_week'))}")
+            else:
+                parts.append(f"{label} {'ready' if item.get('readiness') == 'ready' else '?'} quota:?")
         elif isinstance(windows, dict):
             parts.append(f"{label} 5h:{display(windows.get('five_hour'))} 7d:{display(windows.get('one_week'))}")
         else:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json, os, tempfile, time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from . import LEGACY_SCHEMAS, PROVIDERS, SCHEMA
@@ -16,10 +17,13 @@ def atomic_write(path:Path,value:dict)->None:
         os.chmod(raw,0o600);os.replace(raw,path);os.chmod(path,0o600)
     finally:
         if os.path.exists(raw):os.unlink(raw)
-def refresh(home:Path|None=None,timeout:float=5.0)->dict:
+def refresh(home:Path|None=None,timeout:float=10.0)->dict:
     home=home or Path.home(); previous=read_cache(home); data={"schema_version":SCHEMA,"captured_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z")}
-    for name,adapter in {"claude":claude.collect,"openai":openai.collect,"antigravity":antigravity.collect}.items():
-        try:collected=adapter(home,timeout)
+    adapters={"claude":claude.collect,"openai":openai.collect,"antigravity":antigravity.collect}
+    with ThreadPoolExecutor(max_workers=len(adapters),thread_name_prefix="dex-usage") as pool:
+      futures={name:pool.submit(adapter,home,timeout) for name,adapter in adapters.items()}
+      for name in adapters:
+        try:collected=futures[name].result(timeout=timeout+.5)
         except Exception:collected={"alert_level":"unknown"}
         old=previous.get(name) if isinstance(previous,dict) else None
         if not _has_known_usage(collected) and _has_known_usage(old):
@@ -63,7 +67,8 @@ def render(data:dict|None)->str:
         label=labels[name]+("~" if isinstance(item,dict) and item.get("stale") else "")
         if name == "antigravity":
             readiness = item.get("readiness") if isinstance(item,dict) else None
-            parts.append(f"{label} {'ready' if readiness == 'ready' else '?'} quota:?")
+            if isinstance(windows,dict):parts.append(f"{label} 5h:{_window_text(windows.get('five_hour'))} 7d:{_window_text(windows.get('one_week'))}")
+            else:parts.append(f"{label} {'ready' if readiness == 'ready' else '?'} quota:?")
         elif isinstance(windows,dict):
             parts.append(f"{label} 5h:{_window_text(windows.get('five_hour'))} 7d:{_window_text(windows.get('one_week'))}")
         else:
@@ -78,7 +83,8 @@ def render_detailed(data:dict|None)->str:
         item=data.get(name,{}) if data else {}; windows=item.get("windows") if isinstance(item,dict) else None
         if name == "antigravity":
             readiness=item.get("readiness") if isinstance(item,dict) else None
-            lines.append(f"antigravity: readiness={readiness or 'unknown'}; quota=unknown (agy exposes no reliable quota contract)")
+            if isinstance(windows,dict):lines.append(f"antigravity: readiness={readiness or 'unknown'}; 5-hour={_window_text(windows.get('five_hour'))}; 1-week={_window_text(windows.get('one_week'))}; source=experimental TUI capture")
+            else:lines.append(f"antigravity: readiness={readiness or 'unknown'}; quota=unknown (TUI capture unavailable)")
             continue
         if not isinstance(windows,dict):
             lines.append(f"{name}: 5-hour=unknown; 1-week=unknown (legacy cache has no named windows)")
