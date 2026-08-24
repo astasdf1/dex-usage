@@ -1,6 +1,6 @@
 # DEX Usage — Claude Code 플러그인
 
-Claude Code와 Codex의 로컬 로그인 정보로 남은 사용량을 수집하고, Antigravity `agy`의 설치·로그인 준비 상태를 함께 표시합니다. Gemini는 별도 provider로 취급하지 않습니다. `agy`가 신뢰할 수 있는 쿼터 계약을 제공하지 않으므로 Antigravity 쿼터는 추측하지 않고 `quota:?`로 표시합니다. Node.js, npm, FlowDesk, MCP가 필요 없으며 Python 3 표준 라이브러리만 사용합니다. 상태줄은 네트워크를 호출하지 않고 캐시만 읽습니다.
+Claude Code와 Codex의 로컬 로그인 정보로 남은 사용량을 수집하고, Antigravity `agy`의 설치·로그인 준비 상태를 함께 표시합니다. Google 계열 provider는 Antigravity 하나만 제공합니다. `agy`가 신뢰할 수 있는 쿼터 계약을 제공하지 않으므로 Antigravity 쿼터는 추측하지 않고 `quota:?`로 표시합니다. Node.js, npm, FlowDesk, MCP가 필요 없으며 Python 3 표준 라이브러리만 사용합니다. 상태줄은 네트워크를 호출하지 않고 캐시만 읽습니다.
 
 ## 개발/로컬 실행
 

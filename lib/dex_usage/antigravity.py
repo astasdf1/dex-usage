@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def collect(home: Path, timeout: float):
-    """Report agy readiness only; never substitute Gemini quota."""
+    """Report agy readiness only; never substitute another product's quota."""
     executable = shutil.which("agy")
     result = {"alert_level": "unknown", "readiness": "unknown", "quota_status": "unavailable"}
     if not executable:
