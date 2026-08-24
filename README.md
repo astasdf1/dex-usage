@@ -33,8 +33,8 @@ claude --plugin-dir "$HOME/.local/share/dex-usage"
 단일 파일 패키지를 만들 수도 있습니다. 패키지는 같은 19개 릴리스 허용 목록만 포함하며 테스트, 설치/패키징 도구, 개발 파일, dot/editor/민감 파일은 포함하지 않습니다. tar 멤버와 gzip 헤더의 시간·소유자·이름·권한 메타데이터를 정규화하므로 동일한 내용은 빌드 시간, 소스 경로, checkout 권한과 무관하게 byte-for-byte 동일한 archive를 생성합니다.
 
 ```bash
-python3 plugins/dex-usage/scripts/package.py --out dist/dex-usage-1.0.0.tar.gz
-tar -xzf dist/dex-usage-1.0.0.tar.gz -C /safe/team/path
+python3 plugins/dex-usage/scripts/package.py --out dist/dex-usage-1.1.0.tar.gz
+tar -xzf dist/dex-usage-1.1.0.tar.gz -C /safe/team/path
 claude --plugin-dir /safe/team/path/dex-usage
 ```
 
@@ -45,9 +45,18 @@ claude plugin marketplace add /absolute/path/to/plugins/dex-usage
 claude plugin install dex-usage@dex-usage-marketplace --scope user
 ```
 
+GitHub marketplace로 등록한 설치본은 Claude Code의 marketplace 자동 업데이트가 켜져 있으면 `main`의 새 manifest 버전을 백그라운드에서 받습니다. 자동 업데이트는 Claude Code `/plugin`의 marketplace 설정에서 `dex-usage-marketplace`에 대해 켭니다. 즉시 반영하려면 다음 명령을 사용할 수 있습니다.
+
+```bash
+claude plugin marketplace update dex-usage-marketplace
+claude plugin update dex-usage@dex-usage-marketplace --scope user
+```
+
+업데이트된 플러그인의 `SessionStart` 훅은 사용자가 `/dex-usage:setup`으로 한 번 연결한 안정 경로의 status-line 실행 파일만 원자적으로 갱신합니다. 기존 `settings.json`, 기존 status-line 합성 정보, 인증정보는 덮어쓰지 않습니다. 새 버전 적용에는 Claude Code 재시작이 필요할 수 있습니다.
+
 Claude Code 세션 안에서는 같은 작업을 `/plugin marketplace add /absolute/path/to/plugins/dex-usage`, `/plugin install dex-usage@dex-usage-marketplace`로 실행할 수 있습니다. 팀 저장소에만 고정하려면 `--scope project`, 현재 체크아웃에만 두려면 `--scope local`을 사용합니다. 마켓플레이스 이름은 `dex-workers@dex-team`과 독립적으로 공존하도록 `dex-usage-marketplace`로 고정됩니다.
 
-플러그인은 사용자 전역 설정을 자동 변경하지 않습니다. 훅은 세션/프롬프트 시 캐시만 비동기로 갱신합니다. Claude/Codex/Gemini가 없거나 로그아웃 상태이면 해당 공급자를 `unknown`으로 표시하며 전체 명령은 성공합니다.
+플러그인은 사용자 전역 설정을 자동 변경하지 않습니다. `SessionStart` 훅은 상태줄이 처음 렌더링되기 전에 공급자 사용량을 갱신합니다. 시작 지연은 8초의 하드 타임아웃과 공급자별 2초 타임아웃으로 제한되며, 하드 타임아웃에 걸리면 원자적 쓰기가 완료되지 않아 기존 캐시를 그대로 표시합니다. `UserPromptSubmit`은 기존처럼 비동기로 실행되고 5분 TTL이 지난 경우에만 갱신합니다. Claude/Codex/Gemini가 없거나 로그아웃 상태이면 해당 공급자를 `unknown`으로 표시하며 전체 명령은 성공합니다.
 
 ## 소유권과 출처
 

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Durable cache-only DEX status-line runner installed into user config."""
 from __future__ import annotations
-import json, os, subprocess, sys
+import json, os, subprocess, sys, time
+from datetime import datetime
 from pathlib import Path
 
-SCHEMA = "dex.provider_usage_cache.v1"
+SCHEMAS = {"dex.provider_usage_cache.v1", "dex.provider_usage_cache.v2"}
 
 def config_dir(home: Path) -> Path:
     return Path(os.environ.get("CLAUDE_CONFIG_DIR", home / ".claude")) / "dex-usage"
@@ -22,15 +23,34 @@ def render(home: Path) -> str:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
             raise ValueError
         data = json.loads(path.read_text())
-        if not isinstance(data, dict) or data.get("schema_version") != SCHEMA:
+        if not isinstance(data, dict) or data.get("schema_version") not in SCHEMAS:
             raise ValueError
     except (OSError, ValueError, json.JSONDecodeError):
         data = {}
+    def reset_text(value):
+        if not isinstance(value, str) or not value: return "?"
+        try: seconds=max(0,datetime.fromisoformat(value.replace("Z","+00:00")).timestamp()-time.time())
+        except ValueError: return "?"
+        if seconds < 3600: return f"{max(1,int((seconds+59)//60))}m"
+        if seconds < 86400: return f"{int(seconds//3600)}h"
+        return f"{int(seconds//86400)}d"
+    def display(value):
+        if not isinstance(value, dict): return "?"
+        if value.get("status") == "unsupported": return "unsupported"
+        remaining, reset = value.get("remaining_percent"), value.get("reset_time")
+        if not isinstance(remaining, (int, float)): return "?"
+        return f"{remaining:g}%/{reset_text(reset)}"
     parts = []
     for name, label in (("claude", "C"), ("openai", "O"), ("gemini", "G")):
-        value = data.get(name, {}).get("remaining_percent") if isinstance(data.get(name), dict) else None
-        parts.append(f"{label}:{value:g}%" if isinstance(value, (int, float)) else f"{label}:?")
-    return "usage " + " ".join(parts)
+        item = data.get(name, {}) if isinstance(data.get(name), dict) else {}
+        windows = item.get("windows")
+        if isinstance(windows, dict):
+            parts.append(f"{label} 5h:{display(windows.get('five_hour'))} 7d:{display(windows.get('one_week'))}")
+        else:
+            value = item.get("remaining_percent")
+            legacy = f" legacy:{value:g}%" if isinstance(value, (int, float)) else ""
+            parts.append(f"{label} 5h:? 7d:?{legacy}")
+    return "usage " + " | ".join(parts)
 
 def main() -> int:
     home = Path.home()

@@ -2,7 +2,7 @@ from __future__ import annotations
 import json, os, tempfile, time
 from datetime import datetime, timezone
 from pathlib import Path
-from . import PROVIDERS, SCHEMA
+from . import LEGACY_SCHEMAS, PROVIDERS, SCHEMA
 from . import claude, gemini, openai
 
 def cache_dir(home:Path|None=None)->Path:
@@ -26,14 +26,45 @@ def read_cache(home:Path|None=None)->dict|None:
     path=cache_path(home)
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size>1024*1024:return None
-        value=json.loads(path.read_text());return value if isinstance(value,dict) and value.get("schema_version")==SCHEMA else None
+        value=json.loads(path.read_text());return value if isinstance(value,dict) and value.get("schema_version") in ({SCHEMA}|LEGACY_SCHEMAS) else None
     except (OSError,json.JSONDecodeError):return None
 def is_fresh(data:dict|None,max_age:int=300)->bool:
     if not data:return False
     try:return time.time()-datetime.fromisoformat(data["captured_at"].replace("Z","+00:00")).timestamp() <= max_age
     except (KeyError,TypeError,ValueError):return False
+def _window_text(value:object)->str:
+    if not isinstance(value,dict):return "?"
+    if value.get("status")=="unsupported":return "unsupported"
+    remaining=value.get("remaining_percent"); reset=value.get("reset_time")
+    if not isinstance(remaining,(int,float)):return "?"
+    return f"{remaining:g}%/{_reset_text(reset)}"
+
+def _reset_text(value:object,now:float|None=None)->str:
+    if not isinstance(value,str) or not value:return "?"
+    try:
+        seconds=max(0,datetime.fromisoformat(value.replace("Z","+00:00")).timestamp()-(time.time() if now is None else now))
+    except ValueError:return "?"
+    if seconds < 3600:return f"{max(1,int((seconds+59)//60))}m"
+    if seconds < 86400:return f"{int(seconds//3600)}h"
+    return f"{int(seconds//86400)}d"
 def render(data:dict|None)->str:
     labels={"claude":"C","openai":"O","gemini":"G"}; parts=[]
     for name in PROVIDERS:
-        row=data.get(name,{}) if data else {}; value=row.get("remaining_percent"); parts.append(f"{labels[name]}:{value:g}%" if isinstance(value,(int,float)) else f"{labels[name]}:?")
-    return "usage " + " ".join(parts)
+        item=data.get(name,{}) if data else {}; windows=item.get("windows") if isinstance(item,dict) else None
+        if isinstance(windows,dict):
+            parts.append(f"{labels[name]} 5h:{_window_text(windows.get('five_hour'))} 7d:{_window_text(windows.get('one_week'))}")
+        else:
+            legacy=item.get("remaining_percent") if isinstance(item,dict) else None
+            suffix=f" legacy:{legacy:g}%" if isinstance(legacy,(int,float)) else ""
+            parts.append(f"{labels[name]} 5h:? 7d:?{suffix}")
+    return "usage " + " | ".join(parts)
+
+def render_detailed(data:dict|None)->str:
+    lines=[render(data)]
+    for name in PROVIDERS:
+        item=data.get(name,{}) if data else {}; windows=item.get("windows") if isinstance(item,dict) else None
+        if not isinstance(windows,dict):
+            lines.append(f"{name}: 5-hour=unknown; 1-week=unknown (legacy cache has no named windows)")
+            continue
+        lines.append(f"{name}: 5-hour={_window_text(windows.get('five_hour'))}; 1-week={_window_text(windows.get('one_week'))}")
+    return "\n".join(lines)

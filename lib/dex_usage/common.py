@@ -57,6 +57,26 @@ def row(remaining: object, reset: object = None) -> dict[str, Any]:
     if isinstance(reset, str) and len(reset) <= 120: result["reset_time"] = reset
     return result
 
+def window(remaining: object, reset: object = None, *, unsupported: bool = False) -> dict[str, Any]:
+    """Normalize one named quota window without inventing missing values."""
+    if unsupported:
+        return {"status": "unsupported", "alert_level": "unknown"}
+    result = row(remaining, reset)
+    result["status"] = "known" if "remaining_percent" in result else "unknown"
+    return result
+
+def provider(windows: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Return named windows plus the v1-compatible most-constrained summary."""
+    normalized = {
+        name: value if isinstance(value, dict) else window(None)
+        for name, value in (("five_hour", windows.get("five_hour")), ("one_week", windows.get("one_week")))
+    }
+    known = [value for value in normalized.values() if isinstance(value.get("remaining_percent"), (int, float))]
+    summary = dict(min(known, key=lambda item: item["remaining_percent"])) if known else row(None)
+    summary.pop("status", None)
+    summary["windows"] = normalized
+    return summary
+
 def config_home(home: Path, env_name: str, suffix: str) -> Path:
     configured = os.environ.get(env_name)
     return Path(configured).expanduser() if configured else home / suffix

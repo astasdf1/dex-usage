@@ -2,13 +2,32 @@ from __future__ import annotations
 import argparse,json,os,shlex,shutil,stat,subprocess,sys,tempfile,time
 from pathlib import Path
 from . import VERSION
-from .runtime import cache_path,is_fresh,read_cache,refresh,render
+from .runtime import cache_path,is_fresh,read_cache,refresh,render,render_detailed
 
 MARKER="DEX_USAGE_STATUSLINE_V1"
 def settings_path(home:Path)->Path:return Path(os.environ.get("CLAUDE_CONFIG_DIR",home/".claude"))/"settings.json"
 def managed_dir(home:Path)->Path:return settings_path(home).parent/"dex-usage"
 def managed_runner(home:Path)->Path:return managed_dir(home)/"statusline.py"
 def state_path(home:Path)->Path:return managed_dir(home)/"statusline-config.json"
+def sync_managed_runner(plugin_root:Path,home:Path)->bool:
+    """Refresh only our durable runner after a marketplace update.
+
+    This deliberately does not rewrite settings.json or saved user status-line
+    composition. It is safe to run on every SessionStart.
+    """
+    path=settings_path(home); settings=load_object(path) if path.exists() else {}; status=settings.get("statusLine")
+    command=status.get("command","") if isinstance(status,dict) else ""
+    target=managed_runner(home); source=plugin_root/"scripts/statusline.py"
+    if MARKER not in command or str(target) not in command:return False
+    if target.is_symlink() or target.parent.is_symlink() or source.is_symlink() or not source.is_file():return False
+    target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    fd,raw=tempfile.mkstemp(prefix=".statusline.",dir=target.parent)
+    try:
+        with os.fdopen(fd,"wb") as stream:stream.write(source.read_bytes())
+        os.chmod(raw,0o700);os.replace(raw,target)
+    finally:
+        if os.path.exists(raw):os.unlink(raw)
+    return True
 def load_object(path:Path)->dict:
     if not path.exists():return {}
     try:value=json.loads(path.read_text());return value if isinstance(value,dict) else {}
@@ -101,7 +120,7 @@ def uninstall(home:Path,dry_run:bool=False)->int:
 def doctor(home:Path)->int:
     data=read_cache(home);path=settings_path(home);settings=load_object(path) if path.exists() else {};status=settings.get("statusLine");command=status.get("command","") if isinstance(status,dict) else "";managed=MARKER in command
     healthy=not managed or (str(managed_runner(home)) in command and managed_runner(home).is_file() and not managed_runner(home).is_symlink() and state_path(home).is_file() and not state_path(home).is_symlink())
-    print(f"dex-usage {VERSION}");print(f"python: {sys.version.split()[0]}");print(f"cache: {cache_path(home)} ({'fresh' if is_fresh(data) else 'missing/stale'})");print(f"statusline: {'healthy' if managed and healthy else 'not configured' if not managed else 'STALE/BROKEN: rerun setup'}");print(render(data));return 0 if healthy else 2
+    print(f"dex-usage {VERSION}");print(f"python: {sys.version.split()[0]}");print(f"cache: {cache_path(home)} ({'fresh' if is_fresh(data) else 'missing/stale'})");print(f"statusline: {'healthy' if managed and healthy else 'not configured' if not managed else 'STALE/BROKEN: rerun setup'}");print(render_detailed(data));return 0 if healthy else 2
 def statusline(home:Path)->int:
     raw=sys.stdin.buffer.read(2*1024*1024);prefix=""
     config=state_path(home)
@@ -113,7 +132,7 @@ def statusline(home:Path)->int:
     own=render(read_cache(home));print(f"{prefix} | {own}" if prefix else own);return 0
 def main(plugin_root:Path,argv=None)->int:
     parser=argparse.ArgumentParser(prog="dex-usage");parser.add_argument("--home",type=Path,default=Path.home());parser.add_argument("--version",action="version",version=VERSION);sub=parser.add_subparsers(dest="command",required=True)
-    sub.add_parser("usage-all");sub.add_parser("refresh");sub.add_parser("doctor");p=sub.add_parser("setup");p.add_argument("--dry-run",action="store_true");u=sub.add_parser("uninstall");u.add_argument("--dry-run",action="store_true");sub.add_parser("statusline");sub.add_parser("hook-warm")
+    sub.add_parser("usage-all");sub.add_parser("refresh");sub.add_parser("doctor");p=sub.add_parser("setup");p.add_argument("--dry-run",action="store_true");u=sub.add_parser("uninstall");u.add_argument("--dry-run",action="store_true");sub.add_parser("statusline");sub.add_parser("hook-startup");sub.add_parser("hook-warm")
     args=parser.parse_args(argv);home=args.home.expanduser()
     if args.command=="refresh":print(json.dumps(refresh(home),ensure_ascii=False,indent=2));return 0
     if args.command=="usage-all":
@@ -122,6 +141,13 @@ def main(plugin_root:Path,argv=None)->int:
         print(json.dumps(data,ensure_ascii=False,indent=2));return 0
     if args.command=="hook-warm":
         if not is_fresh(read_cache(home)):refresh(home)
+        return 0
+    if args.command=="hook-startup":
+        # SessionStart itself has an 8-second hard stop. Keeping each provider
+        # below that budget preserves the previous atomically-written cache if
+        # Claude Code terminates this refresh at the hook deadline.
+        sync_managed_runner(plugin_root,home)
+        refresh(home,timeout=2.0)
         return 0
     if args.command=="statusline":return statusline(home)
     if args.command=="setup":return setup(plugin_root,home,args.dry_run)
