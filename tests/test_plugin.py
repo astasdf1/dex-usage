@@ -1,9 +1,45 @@
 from __future__ import annotations
-import hashlib,json,os,shutil,subprocess,sys,tarfile,tempfile,time,unittest
+import contextlib,hashlib,io,json,os,shutil,subprocess,sys,tarfile,tempfile,time,unittest
 from pathlib import Path
 from unittest import mock
 ROOT=Path(__file__).resolve().parents[1];CLI=ROOT/"scripts/dex_usage.py"
 class PluginSmokeTest(unittest.TestCase):
+    def setup_with_probe(self,home:Path,readiness:str)->int:
+        sys.path.insert(0,str(ROOT/"lib"))
+        try:
+            import dex_usage.cli as cli
+            with mock.patch.object(cli,"readiness_probe",return_value=readiness),contextlib.redirect_stdout(io.StringIO()):
+                return cli.setup(ROOT,home)
+        finally:sys.path.pop(0)
+
+    def test_setup_enables_antigravity_only_when_installed_and_logged_in(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home=Path(raw);self.assertEqual(self.setup_with_probe(home,"ready"),0)
+            state=json.loads((home/".claude/dex-usage/statusline-config.json").read_text())
+            self.assertIs(state["antigravity_tui_quota"],True);self.assertEqual(state["antigravity_tui_quota_source"],"auto")
+
+    def test_setup_missing_executable_stays_disabled_without_failure(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home=Path(raw);self.assertEqual(self.setup_with_probe(home,"not_installed"),0)
+            self.assertIs(json.loads((home/".claude/dex-usage/statusline-config.json").read_text())["antigravity_tui_quota"],False)
+
+    def test_setup_logged_out_or_failed_probe_stays_disabled_and_persists_no_raw_output(self):
+        for readiness in ("not_authenticated","probe_failed"):
+            with self.subTest(readiness=readiness),tempfile.TemporaryDirectory() as raw:
+                home=Path(raw);self.assertEqual(self.setup_with_probe(home,readiness),0)
+                persisted=(home/".claude/dex-usage/statusline-config.json").read_text();state=json.loads(persisted)
+                self.assertIs(state["antigravity_tui_quota"],False)
+                self.assertEqual(set(state),{"previous","antigravity_tui_quota","antigravity_tui_quota_source"})
+                for raw_marker in ("secret@example.com","token=","not logged in","authentication required","raw_screen"):
+                    self.assertNotIn(raw_marker,persisted.lower())
+
+    def test_setup_rerun_reprobes_auto_state_but_preserves_explicit_disable(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home=Path(raw);self.assertEqual(self.setup_with_probe(home,"not_installed"),0);self.assertEqual(self.setup_with_probe(home,"ready"),0)
+            state_path=home/".claude/dex-usage/statusline-config.json";state=json.loads(state_path.read_text());self.assertIs(state["antigravity_tui_quota"],True)
+            state["antigravity_tui_quota"]=False;state.pop("antigravity_tui_quota_source");state_path.write_text(json.dumps(state))
+            self.assertEqual(self.setup_with_probe(home,"ready"),0);self.assertIs(json.loads(state_path.read_text())["antigravity_tui_quota"],False)
+
     def test_antigravity_tui_parser_handles_ansi_repaint_and_named_windows(self):
         sys.path.insert(0,str(ROOT/"lib"))
         try:
@@ -143,7 +179,7 @@ class PluginSmokeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             home=Path(raw);settings=home/".claude/settings.json";settings.parent.mkdir();settings.write_text(json.dumps({"statusLine":{"type":"command","command":"printf old","padding":2}}))
             preview=self.run_cli(home,"setup","--dry-run");self.assertEqual(preview.returncode,0,preview.stderr);self.assertNotIn("DEX_USAGE_STATUSLINE_V1",settings.read_text());self.assertFalse((home/".cache").exists())
-            result=self.run_cli(home,"setup");self.assertEqual(result.returncode,0,result.stderr);configured=json.loads(settings.read_text());command=configured["statusLine"]["command"];self.assertIn("DEX_USAGE_STATUSLINE_V1",command);self.assertIn(str(home/".claude/dex-usage/statusline.py"),command);self.assertNotIn(str(ROOT),command);self.assertEqual(configured["statusLine"]["padding"],2);state=json.loads((home/".claude/dex-usage/statusline-config.json").read_text());self.assertTrue(state["antigravity_tui_quota"]);self.assertEqual(len(list(settings.parent.glob("settings.json.dex-usage.*.bak"))),1)
+            result=self.run_cli(home,"setup");self.assertEqual(result.returncode,0,result.stderr);configured=json.loads(settings.read_text());command=configured["statusLine"]["command"];self.assertIn("DEX_USAGE_STATUSLINE_V1",command);self.assertIn(str(home/".claude/dex-usage/statusline.py"),command);self.assertNotIn(str(ROOT),command);self.assertEqual(configured["statusLine"]["padding"],2);state=json.loads((home/".claude/dex-usage/statusline-config.json").read_text());self.assertIsInstance(state["antigravity_tui_quota"],bool);self.assertEqual(state["antigravity_tui_quota_source"],"auto");self.assertEqual(len(list(settings.parent.glob("settings.json.dex-usage.*.bak"))),1)
             composed=subprocess.run(command.split(" # ")[0],shell=True,text=True,input="{}",capture_output=True,env=os.environ|{"HOME":raw});self.assertEqual(composed.stdout.strip(),"old | usage C 5h:? 7d:? | O 5h:? 7d:? | A ? quota:?")
             removed=self.run_cli(home,"uninstall");self.assertEqual(removed.returncode,0,removed.stderr);self.assertEqual(json.loads(settings.read_text())["statusLine"],{"type":"command","command":"printf old","padding":2});self.assertFalse((home/".claude/dex-usage").exists())
         with tempfile.TemporaryDirectory() as raw:
@@ -153,7 +189,7 @@ class PluginSmokeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             home=Path(raw);real=home/"real.json";real.write_text("{}\n");settings=home/".claude/settings.json";settings.parent.mkdir();settings.symlink_to(real);result=self.run_cli(home,"setup");self.assertEqual(result.returncode,2);self.assertEqual(real.read_text(),"{}\n")
     def test_packaging_guards_and_folder_install(self):
-        self.assertIn("dex-usage-1.4.0.tar.gz",(ROOT/"scripts/package.py").read_text())
+        self.assertIn("dex-usage-1.4.1.tar.gz",(ROOT/"scripts/package.py").read_text())
         with tempfile.TemporaryDirectory() as raw:
             base=Path(raw);target=base/"team plugin";result=subprocess.run([sys.executable,str(ROOT/"scripts/install-folder.py"),str(target)],text=True,capture_output=True,check=False);self.assertEqual(result.returncode,0,result.stderr);self.assertTrue((target/".claude-plugin/plugin.json").is_file())
             again=subprocess.run([sys.executable,str(ROOT/"scripts/install-folder.py"),str(target)],capture_output=True,check=False);self.assertEqual(again.returncode,2)

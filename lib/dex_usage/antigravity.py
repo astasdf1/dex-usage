@@ -8,6 +8,25 @@ QUOTA_TTL_SECONDS = 1800
 CAPTURE_TIMEOUT_SECONDS = 10.0
 ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
+def readiness_probe(executable: str|None=None,timeout: float=7.0) -> str:
+    """Return agy readiness without logging in or retaining command output."""
+    executable=executable or shutil.which("agy")
+    if not executable:return "not_installed"
+    started=time.monotonic()
+    def remaining(cap:float)->float:
+        budget=timeout-(time.monotonic()-started)
+        if budget<=0:raise TimeoutError("readiness probe deadline exceeded")
+        return min(cap,budget)
+    try:
+        help_result=subprocess.run([executable,"--help"],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=remaining(2),check=False)
+        flags=set(re.findall(r"(?<![\w-])--[a-z][a-z-]*",help_result.stdout+help_result.stderr))
+        if help_result.returncode or not {"--print","--print-timeout","--sandbox"}.issubset(flags):return "unsupported_cli"
+        auth=subprocess.run([executable,"models"],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=remaining(5),check=False)
+        auth_text=(auth.stdout+"\n"+auth.stderr).lower()
+        logged_out=any(token in auth_text for token in ("not logged in","unauthenticated","login required","please log in","authentication required"))
+        return "ready" if auth.returncode==0 and not logged_out else "not_authenticated"
+    except (OSError,TimeoutError,subprocess.TimeoutExpired):return "probe_failed"
+
 def _collector_enabled(home: Path) -> bool:
     """The TUI collector is opt-in: setup records consent, env may disable it."""
     override=os.environ.get("DEX_USAGE_ANTIGRAVITY_TUI")
@@ -178,15 +197,8 @@ def collect(home:Path,timeout:float):
         remaining=budget-(time.monotonic()-started)
         if remaining<=0:raise TimeoutError("collector deadline exceeded")
         return min(cap,remaining)
-    try:
-        help_result=subprocess.run([executable,"--help"],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=remaining_budget(2),check=False)
-        flags=set(re.findall(r"(?<![\w-])--[a-z][a-z-]*",help_result.stdout+help_result.stderr))
-        if help_result.returncode or not {"--print","--print-timeout","--sandbox"}.issubset(flags):result["readiness"]="unsupported_cli";return result
-        auth=subprocess.run([executable,"models"],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=remaining_budget(5),check=False)
-        auth_text=(auth.stdout+"\n"+auth.stderr).lower();logged_out=any(token in auth_text for token in ("not logged in","unauthenticated","login required","please log in","authentication required"))
-        result["readiness"]="ready" if auth.returncode==0 and not logged_out else "not_authenticated"
-        if result["readiness"]!="ready":return result
-    except (OSError,TimeoutError,subprocess.TimeoutExpired):result["readiness"]="probe_failed";return result
+    result["readiness"]=readiness_probe(executable,remaining_budget(7))
+    if result["readiness"]!="ready":return result
     if not _collector_enabled(home):result["quota_status"]="disabled";return result
     cached=_read_quota(home);age=time.time()-float(cached.get("captured_epoch",0)) if cached else float("inf")
     def apply_windows(status:str,windows:dict,stale:bool=False):

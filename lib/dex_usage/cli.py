@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse,json,os,shlex,shutil,stat,subprocess,sys,tempfile,time
 from pathlib import Path
 from . import VERSION
+from .antigravity import readiness_probe
 from .runtime import cache_path,is_fresh,read_cache,refresh,render,render_detailed
 
 MARKER="DEX_USAGE_STATUSLINE_V1"
@@ -49,10 +50,14 @@ def setup(plugin_root:Path,home:Path,dry_run:bool=False)->int:
     target=state_path(home)
     if target.is_symlink() or target.parent.is_symlink():
         print(f"CONFLICT: refusing symbolic-link statusline state path: {target}; no changes made",file=sys.stderr);return 2
+    prior_state=load_object(target) if target.exists() else {}
+    explicit_disable=prior_state.get("antigravity_tui_quota") is False and prior_state.get("antigravity_tui_quota_source") != "auto"
+    env_disable=os.environ.get("DEX_USAGE_ANTIGRAVITY_TUI","").strip().lower() in {"0","false","no","off"}
+    antigravity_enabled=not explicit_disable and not env_disable and readiness_probe()=="ready"
     status=dict(existing) if isinstance(existing,dict) and MARKER in str(existing.get("command","")) else dict(compose or {})
     status.update({"type":"command","command":f"{command} # {MARKER}"})
     status.setdefault("refreshInterval",30)
-    print(json.dumps({"settings":str(path),"statusLine":status,"composesExisting":bool(compose)},ensure_ascii=False))
+    print(json.dumps({"settings":str(path),"statusLine":status,"composesExisting":bool(compose),"antigravity_tui_quota":antigravity_enabled},ensure_ascii=False))
     if dry_run:return 0
     target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     source_runner=plugin_root/"scripts/statusline.py"
@@ -71,7 +76,8 @@ def setup(plugin_root:Path,home:Path,dry_run:bool=False)->int:
         if os.path.exists(runner_raw):os.unlink(runner_raw)
     state_fd,state_raw=tempfile.mkstemp(prefix=".statusline-config.",dir=target.parent)
     try:
-        with os.fdopen(state_fd,"w",encoding="utf-8") as stream:stream.write(json.dumps({"previous":compose,"antigravity_tui_quota":True})+"\n")
+        state={"previous":compose,"antigravity_tui_quota":antigravity_enabled,"antigravity_tui_quota_source":"explicit" if explicit_disable else "auto"}
+        with os.fdopen(state_fd,"w",encoding="utf-8") as stream:stream.write(json.dumps(state,separators=(",",":"))+"\n")
         os.chmod(state_raw,0o600);os.replace(state_raw,target)
     finally:
         if os.path.exists(state_raw):os.unlink(state_raw)
