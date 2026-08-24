@@ -5,7 +5,7 @@ import json, os, subprocess, sys, time
 from datetime import datetime
 from pathlib import Path
 
-SCHEMAS = {"dex.provider_usage_cache.v1", "dex.provider_usage_cache.v2"}
+SCHEMAS = {"dex.provider_usage_cache.v1", "dex.provider_usage_cache.v2", "dex.provider_usage_cache.v3"}
 
 def config_dir(home: Path) -> Path:
     return Path(os.environ.get("CLAUDE_CONFIG_DIR", home / ".claude")) / "dex-usage"
@@ -41,11 +41,13 @@ def render(home: Path) -> str:
         if not isinstance(remaining, (int, float)): return "?"
         return f"{remaining:g}%/{reset_text(reset)}"
     parts = []
-    for name, label in (("claude", "C"), ("openai", "O"), ("gemini", "G")):
+    for name, label in (("claude", "C"), ("openai", "O"), ("antigravity", "A")):
         item = data.get(name, {}) if isinstance(data.get(name), dict) else {}
         label = label + ("~" if item.get("stale") else "")
         windows = item.get("windows")
-        if isinstance(windows, dict):
+        if name == "antigravity":
+            parts.append(f"{label} {'ready' if item.get('readiness') == 'ready' else '?'} quota:?")
+        elif isinstance(windows, dict):
             parts.append(f"{label} 5h:{display(windows.get('five_hour'))} 7d:{display(windows.get('one_week'))}")
         else:
             value = item.get("remaining_percent")

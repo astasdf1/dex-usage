@@ -1,6 +1,6 @@
 ---
 name: usage-all
-description: Show cached or freshly collected Claude, Codex, and Gemini usage.
+description: Show cached or freshly collected Claude and Codex quota plus Antigravity readiness.
 disable-model-invocation: true
 allowed-tools: Bash
 ---

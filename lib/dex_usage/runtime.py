@@ -3,7 +3,7 @@ import json, os, tempfile, time
 from datetime import datetime, timezone
 from pathlib import Path
 from . import LEGACY_SCHEMAS, PROVIDERS, SCHEMA
-from . import claude, gemini, openai
+from . import antigravity, claude, openai
 
 def cache_dir(home:Path|None=None)->Path:
     configured=os.environ.get("DEX_USAGE_CACHE_DIR") or os.environ.get("XDG_CACHE_HOME")
@@ -18,7 +18,7 @@ def atomic_write(path:Path,value:dict)->None:
         if os.path.exists(raw):os.unlink(raw)
 def refresh(home:Path|None=None,timeout:float=5.0)->dict:
     home=home or Path.home(); previous=read_cache(home); data={"schema_version":SCHEMA,"captured_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z")}
-    for name,adapter in {"claude":claude.collect,"openai":openai.collect,"gemini":gemini.collect}.items():
+    for name,adapter in {"claude":claude.collect,"openai":openai.collect,"antigravity":antigravity.collect}.items():
         try:collected=adapter(home,timeout)
         except Exception:collected={"alert_level":"unknown"}
         old=previous.get(name) if isinstance(previous,dict) else None
@@ -57,11 +57,14 @@ def _reset_text(value:object,now:float|None=None)->str:
     if seconds < 86400:return f"{int(seconds//3600)}h"
     return f"{int(seconds//86400)}d"
 def render(data:dict|None)->str:
-    labels={"claude":"C","openai":"O","gemini":"G"}; parts=[]
+    labels={"claude":"C","openai":"O","antigravity":"A"}; parts=[]
     for name in PROVIDERS:
         item=data.get(name,{}) if data else {}; windows=item.get("windows") if isinstance(item,dict) else None
         label=labels[name]+("~" if isinstance(item,dict) and item.get("stale") else "")
-        if isinstance(windows,dict):
+        if name == "antigravity":
+            readiness = item.get("readiness") if isinstance(item,dict) else None
+            parts.append(f"{label} {'ready' if readiness == 'ready' else '?'} quota:?")
+        elif isinstance(windows,dict):
             parts.append(f"{label} 5h:{_window_text(windows.get('five_hour'))} 7d:{_window_text(windows.get('one_week'))}")
         else:
             legacy=item.get("remaining_percent") if isinstance(item,dict) else None
@@ -73,6 +76,10 @@ def render_detailed(data:dict|None)->str:
     lines=[render(data)]
     for name in PROVIDERS:
         item=data.get(name,{}) if data else {}; windows=item.get("windows") if isinstance(item,dict) else None
+        if name == "antigravity":
+            readiness=item.get("readiness") if isinstance(item,dict) else None
+            lines.append(f"antigravity: readiness={readiness or 'unknown'}; quota=unknown (agy exposes no reliable quota contract)")
+            continue
         if not isinstance(windows,dict):
             lines.append(f"{name}: 5-hour=unknown; 1-week=unknown (legacy cache has no named windows)")
             continue

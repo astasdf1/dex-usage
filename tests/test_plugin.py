@@ -3,6 +3,14 @@ import hashlib,json,os,shutil,subprocess,sys,tarfile,tempfile,time,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];CLI=ROOT/"scripts/dex_usage.py"
 class PluginSmokeTest(unittest.TestCase):
+    def test_codex_windows_are_classified_by_duration_not_position(self):
+        sys.path.insert(0,str(ROOT/"lib"))
+        try:
+            from dex_usage.openai import classify_window
+            self.assertEqual(classify_window({"limit_window_seconds":604800}),"one_week")
+            self.assertEqual(classify_window({"window_seconds":18000}),"five_hour")
+            self.assertIsNone(classify_window({}))
+        finally:sys.path.pop(0)
     def run_cli(self,home:Path,*args:str,env=None):
         return subprocess.run([sys.executable,str(CLI),"--home",str(home),*args],text=True,input="{}",capture_output=True,env=env,check=False)
     def test_manifest_hooks_and_skills(self):
@@ -18,15 +26,15 @@ class PluginSmokeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             home=Path(raw);env={"HOME":raw,"PATH":"/usr/bin:/bin","PYTHONPATH":"","DEX_USAGE_HTTP_TIMEOUT":"0.2"}
             result=self.run_cli(home,"refresh",env=env);self.assertEqual(result.returncode,0,result.stderr);data=json.loads(result.stdout)
-            self.assertEqual([data[p]["alert_level"] for p in ("claude","openai","gemini")],["unknown"]*3)
-            status=self.run_cli(home,"statusline",env=env);self.assertEqual(status.stdout.strip(),"usage C 5h:? 7d:? | O 5h:? 7d:? | G 5h:? 7d:?")
+            self.assertEqual([data[p]["alert_level"] for p in ("claude","openai","antigravity")],["unknown"]*3)
+            status=self.run_cli(home,"statusline",env=env);self.assertEqual(status.stdout.strip(),"usage C 5h:? 7d:? | O 5h:? 7d:? | A ? quota:?")
     def test_statusline_reads_cache_only(self):
         with tempfile.TemporaryDirectory() as raw:
-            home=Path(raw);cache=home/".cache/dex-usage/usage.json";cache.parent.mkdir(parents=True);cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v1","captured_at":"2026-01-01T00:00:00Z","claude":{"remaining_percent":10},"openai":{"remaining_percent":20},"gemini":{"alert_level":"unknown"}}))
+            home=Path(raw);cache=home/".cache/dex-usage/usage.json";cache.parent.mkdir(parents=True);cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v1","captured_at":"2026-01-01T00:00:00Z","claude":{"remaining_percent":10},"openai":{"remaining_percent":20},"antigravity":{"alert_level":"unknown"}}))
             env=os.environ|{"HOME":raw,"PATH":""};result=self.run_cli(home,"statusline",env=env);self.assertEqual(result.returncode,0);self.assertIn("C 5h:? 7d:? legacy:10%",result.stdout)
     def test_startup_refresh_is_unconditional_but_prompt_warm_honors_ttl(self):
         with tempfile.TemporaryDirectory() as raw:
-            home=Path(raw);cache=home/".cache/dex-usage/usage.json";cache.parent.mkdir(parents=True);cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v2","captured_at":"2999-01-01T00:00:00Z","claude":{"remaining_percent":10},"openai":{"remaining_percent":20},"gemini":{"remaining_percent":30}}))
+            home=Path(raw);cache=home/".cache/dex-usage/usage.json";cache.parent.mkdir(parents=True);cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v2","captured_at":"2999-01-01T00:00:00Z","claude":{"remaining_percent":10},"openai":{"remaining_percent":20},"antigravity":{"readiness":"ready"}}))
             env={"HOME":raw,"PATH":"/usr/bin:/bin","PYTHONPATH":"","DEX_USAGE_HTTP_TIMEOUT":"0.01"}
             before=cache.read_text();warm=self.run_cli(home,"hook-warm",env=env);self.assertEqual(warm.returncode,0,warm.stderr);self.assertEqual(cache.read_text(),before)
             startup=self.run_cli(home,"hook-startup",env=env);self.assertEqual(startup.returncode,0,startup.stderr);self.assertNotEqual(cache.read_text(),before)
@@ -34,7 +42,7 @@ class PluginSmokeTest(unittest.TestCase):
     def test_refresh_keeps_last_known_provider_value_on_transient_failure(self):
         with tempfile.TemporaryDirectory() as raw:
             home=Path(raw); cache=home/".cache/dex-usage/usage.json"; cache.parent.mkdir(parents=True)
-            cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v2","captured_at":"2026-01-01T00:00:00Z","claude":{"remaining_percent":37,"windows":{"five_hour":{"remaining_percent":37,"reset_time":"2999-01-01T00:00:00Z"},"one_week":{"remaining_percent":61}}},"openai":{"alert_level":"unknown"},"gemini":{"alert_level":"unknown"}}))
+            cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v2","captured_at":"2026-01-01T00:00:00Z","claude":{"remaining_percent":37,"windows":{"five_hour":{"remaining_percent":37,"reset_time":"2999-01-01T00:00:00Z"},"one_week":{"remaining_percent":61}}},"openai":{"alert_level":"unknown"},"antigravity":{"alert_level":"unknown"}}))
             env={"HOME":raw,"PATH":"/usr/bin:/bin","PYTHONPATH":"","DEX_USAGE_HTTP_TIMEOUT":"0.01"}
             result=self.run_cli(home,"refresh",env=env); self.assertEqual(result.returncode,0,result.stderr)
             value=json.loads(result.stdout)["claude"]; self.assertEqual(value["remaining_percent"],37); self.assertTrue(value["stale"])
@@ -43,7 +51,7 @@ class PluginSmokeTest(unittest.TestCase):
             home=Path(raw);settings=home/".claude/settings.json";settings.parent.mkdir();settings.write_text(json.dumps({"statusLine":{"type":"command","command":"printf old","padding":2}}))
             preview=self.run_cli(home,"setup","--dry-run");self.assertEqual(preview.returncode,0,preview.stderr);self.assertNotIn("DEX_USAGE_STATUSLINE_V1",settings.read_text());self.assertFalse((home/".cache").exists())
             result=self.run_cli(home,"setup");self.assertEqual(result.returncode,0,result.stderr);configured=json.loads(settings.read_text());command=configured["statusLine"]["command"];self.assertIn("DEX_USAGE_STATUSLINE_V1",command);self.assertIn(str(home/".claude/dex-usage/statusline.py"),command);self.assertNotIn(str(ROOT),command);self.assertEqual(configured["statusLine"]["padding"],2);self.assertTrue((home/".claude/dex-usage/statusline-config.json").is_file());self.assertEqual(len(list(settings.parent.glob("settings.json.dex-usage.*.bak"))),1)
-            composed=subprocess.run(command.split(" # ")[0],shell=True,text=True,input="{}",capture_output=True,env=os.environ|{"HOME":raw});self.assertEqual(composed.stdout.strip(),"old | usage C 5h:? 7d:? | O 5h:? 7d:? | G 5h:? 7d:?")
+            composed=subprocess.run(command.split(" # ")[0],shell=True,text=True,input="{}",capture_output=True,env=os.environ|{"HOME":raw});self.assertEqual(composed.stdout.strip(),"old | usage C 5h:? 7d:? | O 5h:? 7d:? | A ? quota:?")
             removed=self.run_cli(home,"uninstall");self.assertEqual(removed.returncode,0,removed.stderr);self.assertEqual(json.loads(settings.read_text())["statusLine"],{"type":"command","command":"printf old","padding":2});self.assertFalse((home/".claude/dex-usage").exists())
         with tempfile.TemporaryDirectory() as raw:
             home=Path(raw);self.assertEqual(self.run_cli(home,"setup").returncode,0);settings=home/".claude/settings.json";value=json.loads(settings.read_text());value["statusLine"]={"type":"command","command":"printf user-changed"};settings.write_text(json.dumps(value));removed=self.run_cli(home,"uninstall");self.assertEqual(removed.returncode,2);self.assertEqual(json.loads(settings.read_text())["statusLine"]["command"],"printf user-changed")
@@ -76,7 +84,7 @@ class PluginSmokeTest(unittest.TestCase):
             with tarfile.open(archives[0],"r:gz") as bundle:
                 members=bundle.getmembers();expected={f"dex-usage/{path}" for path in (
                     ".claude-plugin/marketplace.json",".claude-plugin/plugin.json","NOTICE.md","README.md","bin/dex-usage","hooks/hooks.json",
-                    "lib/dex_usage/__init__.py","lib/dex_usage/claude.py","lib/dex_usage/cli.py","lib/dex_usage/common.py","lib/dex_usage/gemini.py","lib/dex_usage/openai.py","lib/dex_usage/runtime.py",
+                    "lib/dex_usage/__init__.py","lib/dex_usage/claude.py","lib/dex_usage/cli.py","lib/dex_usage/common.py","lib/dex_usage/antigravity.py","lib/dex_usage/openai.py","lib/dex_usage/runtime.py",
                     "scripts/dex_usage.py","scripts/statusline.py","skills/doctor/SKILL.md","skills/refresh/SKILL.md","skills/setup/SKILL.md","skills/usage-all/SKILL.md")}
                 self.assertEqual({member.name for member in members},expected);self.assertEqual(len(members),19)
                 self.assertTrue(all(member.isfile() and not member.issym() and not member.islnk() for member in members))
@@ -112,17 +120,17 @@ class PluginSmokeTest(unittest.TestCase):
             base=Path(raw);home=base/"home";home.mkdir();cache_v1=base/".claude/plugins/cache/dex-usage-marketplace/dex-usage/1.0.0";cache_v1.parent.mkdir(parents=True);shutil.copytree(ROOT,cache_v1)
             env=os.environ|{"HOME":str(home)};cli=cache_v1/"scripts/dex_usage.py";setup=subprocess.run([sys.executable,str(cli),"--home",str(home),"setup"],text=True,capture_output=True,env=env,check=False);self.assertEqual(setup.returncode,0,setup.stderr)
             settings=json.loads((home/".claude/settings.json").read_text());command=settings["statusLine"]["command"];self.assertNotIn(str(cache_v1),command)
-            cache=home/".cache/dex-usage/usage.json";cache.parent.mkdir(parents=True);cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v1","claude":{"remaining_percent":7},"openai":{},"gemini":{}}));shutil.rmtree(cache_v1)
-            rendered=subprocess.run(command.split(" # ")[0],shell=True,text=True,input="{}",capture_output=True,env=env,check=False);self.assertEqual(rendered.stdout.strip(),"usage C 5h:? 7d:? legacy:7% | O 5h:? 7d:? | G 5h:? 7d:?")
-            local=base/"local plugin";shutil.copytree(ROOT,local);updated=subprocess.run([sys.executable,str(local/"scripts/dex_usage.py"),"--home",str(home),"setup"],text=True,capture_output=True,env=env,check=False);self.assertEqual(updated.returncode,0,updated.stderr);shutil.rmtree(local);rendered=subprocess.run(command.split(" # ")[0],shell=True,text=True,input="{}",capture_output=True,env=env,check=False);self.assertEqual(rendered.stdout.strip(),"usage C 5h:? 7d:? legacy:7% | O 5h:? 7d:? | G 5h:? 7d:?")
+            cache=home/".cache/dex-usage/usage.json";cache.parent.mkdir(parents=True);cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v1","claude":{"remaining_percent":7},"openai":{},"gemini":{"remaining_percent":99}}));shutil.rmtree(cache_v1)
+            rendered=subprocess.run(command.split(" # ")[0],shell=True,text=True,input="{}",capture_output=True,env=env,check=False);self.assertEqual(rendered.stdout.strip(),"usage C 5h:? 7d:? legacy:7% | O 5h:? 7d:? | A ? quota:?")
+            local=base/"local plugin";shutil.copytree(ROOT,local);updated=subprocess.run([sys.executable,str(local/"scripts/dex_usage.py"),"--home",str(home),"setup"],text=True,capture_output=True,env=env,check=False);self.assertEqual(updated.returncode,0,updated.stderr);shutil.rmtree(local);rendered=subprocess.run(command.split(" # ")[0],shell=True,text=True,input="{}",capture_output=True,env=env,check=False);self.assertEqual(rendered.stdout.strip(),"usage C 5h:? 7d:? legacy:7% | O 5h:? 7d:? | A ? quota:?")
 
     def test_v2_windows_and_reset_times_are_compact(self):
         with tempfile.TemporaryDirectory() as raw:
             home=Path(raw); cache=home/".cache/dex-usage/usage.json"; cache.parent.mkdir(parents=True)
-            cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v2","captured_at":"2026-01-01T00:00:00Z","claude":{"windows":{"five_hour":{"remaining_percent":37,"reset_time":"2999-01-01T02:00:00Z"},"one_week":{"remaining_percent":61,"reset_time":"2999-01-05T00:00:00Z"}}},"openai":{"windows":{"five_hour":{"remaining_percent":55},"one_week":{"remaining_percent":28}}},"gemini":{"windows":{"five_hour":{"status":"unsupported"},"one_week":{"status":"unsupported"}}}}))
+            cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v2","captured_at":"2026-01-01T00:00:00Z","claude":{"windows":{"five_hour":{"remaining_percent":37,"reset_time":"2999-01-01T02:00:00Z"},"one_week":{"remaining_percent":61,"reset_time":"2999-01-05T00:00:00Z"}}},"openai":{"windows":{"five_hour":{"remaining_percent":55},"one_week":{"remaining_percent":28}}},"antigravity":{"readiness":"ready"}}))
             result=self.run_cli(home,"statusline"); self.assertEqual(result.returncode,0,result.stderr)
             self.assertIn("C 5h:37%/",result.stdout); self.assertIn("7d:61%/",result.stdout)
-            self.assertIn("O 5h:55%/? 7d:28%/?",result.stdout); self.assertIn("G 5h:unsupported 7d:unsupported",result.stdout)
+            self.assertIn("O 5h:55%/? 7d:28%/?",result.stdout); self.assertIn("A ready quota:?",result.stdout)
 
     def test_startup_syncs_managed_runner_without_rewriting_settings(self):
         with tempfile.TemporaryDirectory() as raw:

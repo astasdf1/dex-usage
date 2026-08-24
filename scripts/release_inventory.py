@@ -14,7 +14,7 @@ RELEASE_FILES = (
     "lib/dex_usage/claude.py",
     "lib/dex_usage/cli.py",
     "lib/dex_usage/common.py",
-    "lib/dex_usage/gemini.py",
+    "lib/dex_usage/antigravity.py",
     "lib/dex_usage/openai.py",
     "lib/dex_usage/runtime.py",
     "scripts/dex_usage.py",
