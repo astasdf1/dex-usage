@@ -1,6 +1,6 @@
 {
   "name": "dex-usage",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "DEX-owned local usage cache and status line for Claude, Codex, and Gemini",
   "author": {"name": "DEX-2"},
   "license": "Proprietary",

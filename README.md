@@ -33,8 +33,8 @@ claude --plugin-dir "$HOME/.local/share/dex-usage"
 단일 파일 패키지를 만들 수도 있습니다. 패키지는 같은 19개 릴리스 허용 목록만 포함하며 테스트, 설치/패키징 도구, 개발 파일, dot/editor/민감 파일은 포함하지 않습니다. tar 멤버와 gzip 헤더의 시간·소유자·이름·권한 메타데이터를 정규화하므로 동일한 내용은 빌드 시간, 소스 경로, checkout 권한과 무관하게 byte-for-byte 동일한 archive를 생성합니다.
 
 ```bash
-python3 plugins/dex-usage/scripts/package.py --out dist/dex-usage-1.1.0.tar.gz
-tar -xzf dist/dex-usage-1.1.0.tar.gz -C /safe/team/path
+python3 plugins/dex-usage/scripts/package.py --out dist/dex-usage-1.1.1.tar.gz
+tar -xzf dist/dex-usage-1.1.1.tar.gz -C /safe/team/path
 claude --plugin-dir /safe/team/path/dex-usage
 ```
 
