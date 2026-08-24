@@ -43,6 +43,7 @@ def render(home: Path) -> str:
     parts = []
     for name, label in (("claude", "C"), ("openai", "O"), ("gemini", "G")):
         item = data.get(name, {}) if isinstance(data.get(name), dict) else {}
+        label = label + ("~" if item.get("stale") else "")
         windows = item.get("windows")
         if isinstance(windows, dict):
             parts.append(f"{label} 5h:{display(windows.get('five_hour'))} 7d:{display(windows.get('one_week'))}")

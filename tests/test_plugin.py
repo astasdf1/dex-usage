@@ -30,6 +30,14 @@ class PluginSmokeTest(unittest.TestCase):
             env={"HOME":raw,"PATH":"/usr/bin:/bin","PYTHONPATH":"","DEX_USAGE_HTTP_TIMEOUT":"0.01"}
             before=cache.read_text();warm=self.run_cli(home,"hook-warm",env=env);self.assertEqual(warm.returncode,0,warm.stderr);self.assertEqual(cache.read_text(),before)
             startup=self.run_cli(home,"hook-startup",env=env);self.assertEqual(startup.returncode,0,startup.stderr);self.assertNotEqual(cache.read_text(),before)
+
+    def test_refresh_keeps_last_known_provider_value_on_transient_failure(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home=Path(raw); cache=home/".cache/dex-usage/usage.json"; cache.parent.mkdir(parents=True)
+            cache.write_text(json.dumps({"schema_version":"dex.provider_usage_cache.v2","captured_at":"2026-01-01T00:00:00Z","claude":{"remaining_percent":37,"windows":{"five_hour":{"remaining_percent":37,"reset_time":"2999-01-01T00:00:00Z"},"one_week":{"remaining_percent":61}}},"openai":{"alert_level":"unknown"},"gemini":{"alert_level":"unknown"}}))
+            env={"HOME":raw,"PATH":"/usr/bin:/bin","PYTHONPATH":"","DEX_USAGE_HTTP_TIMEOUT":"0.01"}
+            result=self.run_cli(home,"refresh",env=env); self.assertEqual(result.returncode,0,result.stderr)
+            value=json.loads(result.stdout)["claude"]; self.assertEqual(value["remaining_percent"],37); self.assertTrue(value["stale"])
     def test_setup_compose_and_conflict(self):
         with tempfile.TemporaryDirectory() as raw:
             home=Path(raw);settings=home/".claude/settings.json";settings.parent.mkdir();settings.write_text(json.dumps({"statusLine":{"type":"command","command":"printf old","padding":2}}))

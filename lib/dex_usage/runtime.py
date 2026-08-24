@@ -17,11 +17,20 @@ def atomic_write(path:Path,value:dict)->None:
     finally:
         if os.path.exists(raw):os.unlink(raw)
 def refresh(home:Path|None=None,timeout:float=5.0)->dict:
-    home=home or Path.home(); data={"schema_version":SCHEMA,"captured_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z")}
+    home=home or Path.home(); previous=read_cache(home); data={"schema_version":SCHEMA,"captured_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z")}
     for name,adapter in {"claude":claude.collect,"openai":openai.collect,"gemini":gemini.collect}.items():
-        try:data[name]=adapter(home,timeout)
-        except Exception:data[name]={"alert_level":"unknown"}
+        try:collected=adapter(home,timeout)
+        except Exception:collected={"alert_level":"unknown"}
+        old=previous.get(name) if isinstance(previous,dict) else None
+        if not _has_known_usage(collected) and _has_known_usage(old):
+            collected=dict(old); collected["stale"] = True
+        data[name]=collected
     atomic_write(cache_path(home),data);return data
+def _has_known_usage(value:object)->bool:
+    if not isinstance(value,dict):return False
+    if isinstance(value.get("remaining_percent"),(int,float)):return True
+    windows=value.get("windows")
+    return isinstance(windows,dict) and any(isinstance(item,dict) and isinstance(item.get("remaining_percent"),(int,float)) for item in windows.values())
 def read_cache(home:Path|None=None)->dict|None:
     path=cache_path(home)
     try:
@@ -51,12 +60,13 @@ def render(data:dict|None)->str:
     labels={"claude":"C","openai":"O","gemini":"G"}; parts=[]
     for name in PROVIDERS:
         item=data.get(name,{}) if data else {}; windows=item.get("windows") if isinstance(item,dict) else None
+        label=labels[name]+("~" if isinstance(item,dict) and item.get("stale") else "")
         if isinstance(windows,dict):
-            parts.append(f"{labels[name]} 5h:{_window_text(windows.get('five_hour'))} 7d:{_window_text(windows.get('one_week'))}")
+            parts.append(f"{label} 5h:{_window_text(windows.get('five_hour'))} 7d:{_window_text(windows.get('one_week'))}")
         else:
             legacy=item.get("remaining_percent") if isinstance(item,dict) else None
             suffix=f" legacy:{legacy:g}%" if isinstance(legacy,(int,float)) else ""
-            parts.append(f"{labels[name]} 5h:? 7d:?{suffix}")
+            parts.append(f"{label} 5h:? 7d:?{suffix}")
     return "usage " + " | ".join(parts)
 
 def render_detailed(data:dict|None)->str:

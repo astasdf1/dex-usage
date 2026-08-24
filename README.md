@@ -56,7 +56,7 @@ claude plugin update dex-usage@dex-usage-marketplace --scope user
 
 Claude Code 세션 안에서는 같은 작업을 `/plugin marketplace add /absolute/path/to/plugins/dex-usage`, `/plugin install dex-usage@dex-usage-marketplace`로 실행할 수 있습니다. 팀 저장소에만 고정하려면 `--scope project`, 현재 체크아웃에만 두려면 `--scope local`을 사용합니다. 마켓플레이스 이름은 `dex-workers@dex-team`과 독립적으로 공존하도록 `dex-usage-marketplace`로 고정됩니다.
 
-플러그인은 사용자 전역 설정을 자동 변경하지 않습니다. `SessionStart` 훅은 상태줄이 처음 렌더링되기 전에 공급자 사용량을 갱신합니다. 시작 지연은 8초의 하드 타임아웃과 공급자별 2초 타임아웃으로 제한되며, 하드 타임아웃에 걸리면 원자적 쓰기가 완료되지 않아 기존 캐시를 그대로 표시합니다. `UserPromptSubmit`은 기존처럼 비동기로 실행되고 5분 TTL이 지난 경우에만 갱신합니다. Claude/Codex/Gemini가 없거나 로그아웃 상태이면 해당 공급자를 `unknown`으로 표시하며 전체 명령은 성공합니다.
+플러그인은 사용자 전역 설정을 자동 변경하지 않습니다. `SessionStart` 훅은 상태줄이 처음 렌더링되기 전에 공급자 사용량을 갱신합니다. 시작 지연은 8초의 하드 타임아웃과 공급자별 2초 타임아웃으로 제한됩니다. 하드 타임아웃이나 일시적인 rate-limit/API 실패가 발생하면 마지막 정상값을 유지하며 공급자 글자 뒤의 `~`로 stale 상태를 표시합니다. `UserPromptSubmit`은 기존처럼 비동기로 실행되고 5분 TTL이 지난 경우에만 갱신합니다. Claude/Codex/Gemini가 없거나 로그아웃 상태이고 이전 정상값도 없으면 해당 공급자를 `unknown`으로 표시하며 전체 명령은 성공합니다.
 
 ## 소유권과 출처
 
