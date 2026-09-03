@@ -189,7 +189,8 @@ class PluginSmokeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             home=Path(raw);real=home/"real.json";real.write_text("{}\n");settings=home/".claude/settings.json";settings.parent.mkdir();settings.symlink_to(real);result=self.run_cli(home,"setup");self.assertEqual(result.returncode,2);self.assertEqual(real.read_text(),"{}\n")
     def test_packaging_guards_and_folder_install(self):
-        self.assertIn("dex-usage-1.4.1.tar.gz",(ROOT/"scripts/package.py").read_text())
+        version=json.loads((ROOT/".claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
+        self.assertIn(f"dex-usage-{version}.tar.gz",(ROOT/"scripts/package.py").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as raw:
             base=Path(raw);target=base/"team plugin";result=subprocess.run([sys.executable,str(ROOT/"scripts/install-folder.py"),str(target)],text=True,capture_output=True,check=False);self.assertEqual(result.returncode,0,result.stderr);self.assertTrue((target/".claude-plugin/plugin.json").is_file())
             again=subprocess.run([sys.executable,str(ROOT/"scripts/install-folder.py"),str(target)],capture_output=True,check=False);self.assertEqual(again.returncode,2)

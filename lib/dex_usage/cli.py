@@ -31,7 +31,7 @@ def sync_managed_runner(plugin_root:Path,home:Path)->bool:
     return True
 def load_object(path:Path)->dict:
     if not path.exists():return {}
-    try:value=json.loads(path.read_text());return value if isinstance(value,dict) else {}
+    try:value=json.loads(path.read_text(encoding="utf-8"));return value if isinstance(value,dict) else {}
     except (OSError,json.JSONDecodeError):raise RuntimeError(f"invalid JSON: {path}")
 def setup(plugin_root:Path,home:Path,dry_run:bool=False)->int:
     path=settings_path(home)
@@ -131,7 +131,7 @@ def statusline(home:Path)->int:
     raw=sys.stdin.buffer.read(2*1024*1024);prefix=""
     config=state_path(home)
     try:
-        previous=json.loads(config.read_text()).get("previous")
+        previous=json.loads(config.read_text(encoding="utf-8")).get("previous")
         if isinstance(previous,dict) and isinstance(previous.get("command"),str):
             result=subprocess.run(previous["command"],input=raw,shell=True,capture_output=True,timeout=1,check=False);prefix=result.stdout.decode(errors="replace").strip()
     except (OSError,ValueError,subprocess.TimeoutExpired,json.JSONDecodeError):pass

@@ -5,7 +5,7 @@ scripts/flowdesk_usage_snapshot payload and are intentionally owned here so the
 plugin never depends on FlowDesk or files outside its installation directory.
 """
 
-VERSION = "1.4.1"
+VERSION = "1.4.2"
 SCHEMA = "dex.provider_usage_cache.v3"
 LEGACY_SCHEMAS = frozenset({"dex.provider_usage_cache.v1", "dex.provider_usage_cache.v2"})
 PROVIDERS = ("claude", "openai", "antigravity")

@@ -8,7 +8,7 @@ from release_inventory import open_regular_nofollow,validate_source_tree
 EXECUTABLES={Path("bin/dex-usage"),Path("scripts/dex_usage.py")}
 
 def main()->int:
-    parser=argparse.ArgumentParser();parser.add_argument("--out",type=Path,default=Path("dist/dex-usage-1.4.1.tar.gz"));args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument("--out",type=Path,default=Path("dist/dex-usage-1.4.2.tar.gz"));args=parser.parse_args()
     root=Path(__file__).resolve().parents[1];out=args.out.expanduser().absolute();out.parent.mkdir(parents=True,exist_ok=True)
     try:out.relative_to(root)
     except ValueError:pass

@@ -39,7 +39,7 @@ def read_cache(home:Path|None=None)->dict|None:
     path=cache_path(home)
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size>1024*1024:return None
-        value=json.loads(path.read_text());return value if isinstance(value,dict) and value.get("schema_version") in ({SCHEMA}|LEGACY_SCHEMAS) else None
+        value=json.loads(path.read_text(encoding="utf-8"));return value if isinstance(value,dict) and value.get("schema_version") in ({SCHEMA}|LEGACY_SCHEMAS) else None
     except (OSError,json.JSONDecodeError):return None
 def is_fresh(data:dict|None,max_age:int=300)->bool:
     if not data:return False
